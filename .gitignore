@@ -22,3 +22,6 @@ Thumbs.db
 # Python tests
 tests/__pycache__/
 *.pyc
+
+# Process ID file
+debuggerX.pid

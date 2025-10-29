@@ -139,7 +139,10 @@ public class JDIConnectionService {
 
         ObjectReference obj = objectCache.get(objectId);
         if (obj == null) {
-            return "Error: Object not found in cache. ID: " + objectId;
+            return String.format("[ERROR] Object #%d not found in cache\n\n" +
+                "This object was not previously discovered.\n" +
+                "Use jdwp_get_locals() to discover objects in the current scope.",
+                objectId);
         }
 
         try {
@@ -413,7 +416,8 @@ public class JDIConnectionService {
             .orElseThrow(() -> new Exception("Thread not found with ID " + threadId));
 
         if (!thread.isSuspended()) {
-            return "Error: Thread is not suspended. Thread must be stopped at a breakpoint.";
+            return String.format("[ERROR] Thread %d is NOT suspended\n\n" +
+                "Thread must be stopped at a breakpoint to invoke methods.", threadId);
         }
 
         // Get the object (null for static methods)
@@ -421,7 +425,9 @@ public class JDIConnectionService {
         if (objectId != 0) {
             obj = objectCache.get(objectId);
             if (obj == null) {
-                return "Error: Object not found in cache. ID: " + objectId;
+                return String.format("[ERROR] Object #%d not found in cache\n\n" +
+                    "Use jdwp_get_locals() or jdwp_get_fields() to discover this object first.",
+                    objectId);
             }
         }
 
@@ -438,7 +444,12 @@ public class JDIConnectionService {
             java.util.List<Method> methods = refType.methodsByName(methodName);
 
             if (methods.isEmpty()) {
-                return "Error: Method not found: " + methodName;
+                return String.format("[ERROR] Method '%s' not found on %s\n\n" +
+                    "Use jdwp_get_fields() to see available fields, or try common methods like:\n" +
+                    "  - toString()\n" +
+                    "  - getClass()\n" +
+                    "  - hashCode()",
+                    methodName, refType.name());
             }
 
             // Auto-select first matching method

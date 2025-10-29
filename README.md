@@ -61,7 +61,7 @@ Cela crée : `build/libs/mcp-jdwp-java-1.0.0.jar` (23 MB)
 
 ### 2. Configuration Claude Code
 
-Dans `~/.mcp.json` :
+Dans `.mcp.json` (à la racine de votre projet) :
 
 ```json
 {
@@ -69,6 +69,9 @@ Dans `~/.mcp.json` :
     "jdwp-inspector": {
       "command": "java",
       "args": [
+        "-DHOME=C:/Users/nicolasv/MCP_servers/mcp-jdwp-java",
+        "-DJVM_JDWP_PORT=61959",
+        "-DDEBUGGERX_PROXY_PORT=55005",
         "-jar",
         "C:/Users/nicolasv/MCP_servers/mcp-jdwp-java/build/libs/mcp-jdwp-java-1.0.0.jar"
       ]
@@ -76,6 +79,11 @@ Dans `~/.mcp.json` :
   }
 }
 ```
+
+**Paramètres configurables :**
+- `-DHOME` : Chemin vers le dossier mcp-jdwp-java (requis)
+- `-DJVM_JDWP_PORT` : Port où la JVM écoute (défaut: 61959)
+- `-DDEBUGGERX_PROXY_PORT` : Port du proxy debuggerX (défaut: 55005)
 
 ### 3. Redémarrer Claude Code
 
@@ -94,42 +102,39 @@ Lancer en mode **RUN** (pas Debug) avec les VM Options suivantes:
 
 L'application démarre normalement et écoute sur le port `JVM_JDWP_PORT=61959`.
 
-### Étape 2: Lancer debuggerX (proxy JDWP)
-
-```bash
-cd mcp-jdwp-java
-start-debuggerx.bat
-```
-
-Paramètres par défaut:
-- `JVM_JDWP_PORT=61959` - Se connecte à la JVM
-- `DEBUGGERX_PROXY_PORT=55005` - Écoute pour les debuggers
-
-**debuggerX permet à plusieurs debuggers (IntelliJ + MCP Inspector) de se connecter simultanément.**
-
-Pour plus de détails sur le fonctionnement du routage multi-debuggers, voir [lib/debuggerX-README.md](lib/debuggerX-README.md).
-
-### Étape 3: Connecter IntelliJ Remote Debug (optionnel)
+### Étape 2: Connecter IntelliJ Remote Debug (optionnel)
 
 Remote Debug Configuration sur `localhost:55005` (port `DEBUGGERX_PROXY_PORT`)
 
 Cela permet de mettre des breakpoints via IntelliJ tout en inspectant simultanément via Claude Code.
 
-### Étape 4: Utiliser le MCP JDWP Inspector dans Claude Code
+**Note:** debuggerX (le proxy JDWP) se lance **automatiquement** lors de la première connexion.
+
+### Étape 3: Utiliser le MCP JDWP Inspector dans Claude Code
 
 ```
-Moi: "Mets un breakpoint dans RestService.find() et déclenche la requête"
+Moi: "Connecte-toi à l'inspector"
 
 Claude:
-1. Se connecte au JDWP
-2. Liste les threads
-3. Trouve le thread suspendu
-4. Inspecte la stack
-5. Récupère les variables locales
-6. Navigue dans les objets
-7. Appelle des méthodes pour plus d'infos
-8. Analyse le problème
+1. Lance debuggerX automatiquement si nécessaire
+2. Se connecte au JDWP
+3. Prêt à inspecter !
+
+Moi: "J'ai un breakpoint actif, peux-tu analyser la requête?"
+
+Claude:
+1. Liste les threads
+2. Trouve le thread suspendu
+3. Inspecte la stack
+4. Récupère les variables locales
+5. Navigue dans les objets
+6. Appelle des méthodes pour plus d'infos
+7. Analyse le problème
 ```
+
+**debuggerX permet à plusieurs debuggers (IntelliJ + MCP Inspector) de se connecter simultanément.**
+
+Pour plus de détails sur le fonctionnement du routage multi-debuggers, voir [lib/debuggerX-README.md](lib/debuggerX-README.md).
 
 ## Outils MCP disponibles (8)
 
@@ -403,9 +408,9 @@ Vérifiez que `JAVA_HOME` pointe vers un **JDK** (pas un JRE).
 JDI n'est pas disponible. Utilisez un JDK avec tools.jar.
 
 ### Connection refused
-- Vérifiez que debuggerX est lancé (`start-debuggerx.bat`)
 - Vérifiez que Tomcat tourne avec `-agentlib:jdwp=...address=*:61959`
-- Vérifiez les ports (`JVM_JDWP_PORT=61959`, `DEBUGGERX_PROXY_PORT=55005`)
+- Vérifiez les ports dans `.mcp.json` (`JVM_JDWP_PORT=61959`, `DEBUGGERX_PROXY_PORT=55005`)
+- debuggerX se lance automatiquement lors de la connexion
 
 ### Le serveur MCP ne répond pas dans Claude Code
 - Rebuild: `./gradlew.bat build`
@@ -422,10 +427,22 @@ Un thread doit être arrêté à un breakpoint pour:
 
 ### Changer les ports
 
-**1. Modifier `start-debuggerx.bat`:**
-```bat
-set JVM_JDWP_PORT=12345          REM Port où la JVM écoute
-set DEBUGGERX_PROXY_PORT=54321   REM Port où les debuggers se connectent
+**1. Modifier `.mcp.json`:**
+```json
+{
+  "mcpServers": {
+    "jdwp-inspector": {
+      "command": "java",
+      "args": [
+        "-DHOME=C:/Users/nicolasv/MCP_servers/mcp-jdwp-java",
+        "-DJVM_JDWP_PORT=12345",          // Port JVM personnalisé
+        "-DDEBUGGERX_PROXY_PORT=54321",   // Port proxy personnalisé
+        "-jar",
+        "C:/Users/nicolasv/MCP_servers/mcp-jdwp-java/build/libs/mcp-jdwp-java-1.0.0.jar"
+      ]
+    }
+  }
+}
 ```
 
 **2. Modifier les VM Options de l'application:**
@@ -433,7 +450,9 @@ set DEBUGGERX_PROXY_PORT=54321   REM Port où les debuggers se connectent
 -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:12345
 ```
 
-**3. Connecter les debuggers sur le nouveau port proxy:**
+**3. Redémarrer Claude Code pour recharger la configuration**
+
+**4. Connecter les debuggers sur les nouveaux ports:**
 - **IntelliJ**: Remote Debug sur `localhost:54321`
 - **MCP Inspector**: `jdwp_connect(host="localhost", port=54321)`
 
@@ -447,6 +466,8 @@ Voir [lib/debuggerX-README.md](lib/debuggerX-README.md) pour plus de détails.
 - Collections intelligentes
 - Invocation de méthodes
 - Cache singleton persistant
+- Lancement automatique de debuggerX
+- Ports configurables via `.mcp.json`
 
 ## License
 

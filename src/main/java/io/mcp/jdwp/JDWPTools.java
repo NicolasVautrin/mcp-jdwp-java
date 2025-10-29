@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * MCP Tools for JDWP inspection
@@ -16,19 +15,41 @@ import java.util.stream.Collectors;
 public class JDWPTools {
 
     private final JDIConnectionService jdiService;
+    private final DebuggerXManager debuggerXManager;
 
-    public JDWPTools(JDIConnectionService jdiService) {
+    public JDWPTools(JDIConnectionService jdiService, DebuggerXManager debuggerXManager) {
         this.jdiService = jdiService;
+        this.debuggerXManager = debuggerXManager;
     }
 
     @McpTool(description = "Connect to a JDWP server on specified host and port")
     public String jdwp_connect(
             @McpToolParam(description = "JDWP server hostname") String host,
             @McpToolParam(description = "JDWP server port") int port) {
+
+        // Step 1: Ensure debuggerX is running (auto-start if needed)
+        String debuggerXStatus = debuggerXManager.ensureDebuggerXRunning();
+        if (debuggerXStatus != null) {
+            // Error occurred - return detailed message
+            return debuggerXStatus;
+        }
+
+        // Step 2: Try to connect to debuggerX
         try {
             return jdiService.connect(host, port);
         } catch (Exception e) {
-            return "Error: " + e.getMessage();
+            // Connection failed even though debuggerX should be running
+            return String.format(
+                "[ERROR] Connection failed to %s:%d\n\n" +
+                "debuggerX appears to be running but connection failed.\n\n" +
+                "Possible causes:\n" +
+                "  1. Wrong port (you connected to %d, expected proxy port is typically 55005)\n" +
+                "  2. debuggerX crashed after starting\n" +
+                "  3. Firewall blocking the connection\n\n" +
+                "Status:\n%s\n" +
+                "Original error: %s",
+                host, port, port, debuggerXManager.getStatus(), e.getMessage()
+            );
         }
     }
 
