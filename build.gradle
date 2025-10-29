@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.4'
+}
+
+group = 'io.mcp.jdwp'
+version = '1.0.0'
+sourceCompatibility = '17'
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+}
+
+dependencies {
+    // Spring Boot
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // Spring AI MCP Server
+    implementation 'org.springframework.ai:spring-ai-starter-mcp-server:1.1.0-M3'
+
+    // MCP Annotations (correct groupId)
+    implementation 'com.logaritex.mcp:spring-ai-mcp-annotations:0.1.0'
+
+    // JDI (Java Debug Interface) - from JDK tools.jar
+    implementation files("${System.properties['java.home']}/../lib/tools.jar")
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+wrapper {
+    gradleVersion = '8.11'
+    distributionType = Wrapper.DistributionType.BIN
+}
