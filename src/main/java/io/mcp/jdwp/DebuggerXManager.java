@@ -39,17 +39,78 @@ public class DebuggerXManager {
     }
 
     /**
-     * Check if debuggerX is running
+     * Check if debuggerX is running by looking for the process
      */
     public boolean isDebuggerXRunning() {
-        return isPortListening("localhost", DEBUGGERX_PROXY_PORT);
+        // First try socket connection (fast)
+        if (isPortListening("localhost", DEBUGGERX_PROXY_PORT)) {
+            return true;
+        }
+
+        // If socket fails, check running processes for debuggerX
+        try {
+            return ProcessHandle.allProcesses()
+                .filter(ph -> ph.info().command().isPresent())
+                .filter(ph -> {
+                    String cmd = ph.info().command().get().toLowerCase();
+                    return cmd.contains("java") || cmd.contains("javaw");
+                })
+                .anyMatch(ph -> {
+                    // Check if arguments contain our app name
+                    if (ph.info().arguments().isPresent()) {
+                        String[] args = ph.info().arguments().get();
+                        for (String arg : args) {
+                            if (arg.contains("-Dapp.name=" + APP_NAME) ||
+                                arg.contains("debuggerX.jar")) {
+                                return true;
+                            }
+                        }
+                    }
+                    // Also check command line string if available
+                    if (ph.info().commandLine().isPresent()) {
+                        String cmdLine = ph.info().commandLine().get();
+                        return cmdLine.contains(APP_NAME) || cmdLine.contains("debuggerX.jar");
+                    }
+                    return false;
+                });
+        } catch (Exception e) {
+            // Fallback to socket check if process listing fails
+            return false;
+        }
     }
 
     /**
-     * Check if JVM is running with JDWP
+     * Check if JVM is running with JDWP by checking running processes
      */
     public boolean isJvmJdwpRunning() {
-        return isPortListening("localhost", JVM_JDWP_PORT);
+        // First try socket connection (fast if available)
+        if (isPortListening("localhost", JVM_JDWP_PORT)) {
+            return true;
+        }
+
+        // If socket fails, check running processes for JDWP
+        try {
+            return ProcessHandle.allProcesses()
+                .filter(ph -> ph.info().command().isPresent())
+                .filter(ph -> {
+                    String cmd = ph.info().command().get().toLowerCase();
+                    return cmd.contains("java") || cmd.contains("javaw");
+                })
+                .anyMatch(ph -> {
+                    if (ph.info().arguments().isPresent()) {
+                        String[] args = ph.info().arguments().get();
+                        for (String arg : args) {
+                            if (arg.contains("agentlib:jdwp") && arg.contains(String.valueOf(JVM_JDWP_PORT))) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                });
+        } catch (Exception e) {
+            // Fallback to socket check if process listing fails
+            return false;
+        }
     }
 
     /**
@@ -182,8 +243,11 @@ public class DebuggerXManager {
             );
             pb.directory(workingDir);
 
-            // Redirect output to parent process (visible in Claude Code logs)
-            pb.inheritIO();
+            // Redirect output to log file for debugging
+            File logFile = new File(workingDir, "debuggerx-proxy.log");
+            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
+            pb.redirectError(ProcessBuilder.Redirect.appendTo(logFile));
+            System.err.println("[INFO] Proxy logs will be written to: " + logFile.getAbsolutePath());
 
             Process process = pb.start();
 
@@ -215,7 +279,12 @@ public class DebuggerXManager {
      * Returns null if successful, error message otherwise
      */
     public String ensureDebuggerXRunning() {
-        // 1. Check if JVM JDWP port is available
+        // 1. Check if debuggerX is already running
+        if (isDebuggerXRunning()) {
+            return null; // Already running, all good
+        }
+
+        // 2. Check if JVM JDWP port is available (only if debuggerX is not running yet)
         if (!isJvmJdwpRunning()) {
             return String.format(
                 "[ERROR] No JVM found listening on port %d\n\n" +
@@ -229,11 +298,6 @@ public class DebuggerXManager {
                 "  4. Then try jdwp_connect again",
                 JVM_JDWP_PORT, JVM_JDWP_PORT, JVM_JDWP_PORT
             );
-        }
-
-        // 2. Check if debuggerX is already running
-        if (isDebuggerXRunning()) {
-            return null; // Already running, all good
         }
 
         // 3. Try to start debuggerX

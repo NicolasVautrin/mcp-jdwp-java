@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Console appender (stderr only, not stdout) -->
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File appender -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>C:/Users/nicolasv/MCP_servers/mcp-jdwp-java/mcp-jdwp-inspector.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="STDERR" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- More verbose logging for our JDWP service -->
+    <logger name="io.mcp.jdwp" level="DEBUG" additivity="false">
+        <appender-ref ref="STDERR" />
+        <appender-ref ref="FILE" />
+    </logger>
+</configuration>

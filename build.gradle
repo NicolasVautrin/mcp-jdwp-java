@@ -27,6 +27,13 @@ dependencies {
 
     // JDI (Java Debug Interface) - from JDK tools.jar
     implementation files("${System.properties['java.home']}/../lib/tools.jar")
+
+    // Eclipse JDT Core Compiler for in-memory Java compilation
+    implementation 'org.eclipse.jdt:ecj:3.33.0'
+
+    // Lombok for logging annotations
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
 }
 
 tasks.named('test') {

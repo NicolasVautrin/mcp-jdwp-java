@@ -224,68 +224,12 @@ public class JDWPTools {
         }
     }
 
-    @McpTool(description = "Invoke a method on an object (like in a debugger console). Example: invoke toString() or getModel()")
-    public String jdwp_invoke_method(
-            @McpToolParam(description = "Thread unique ID") long threadId,
-            @McpToolParam(description = "Object unique ID") long objectId,
-            @McpToolParam(description = "Method name to invoke (e.g. 'toString', 'getModel')") String methodName) {
-        try {
-            return jdiService.invokeMethod(threadId, objectId, methodName, null, null);
-        } catch (Exception e) {
-            return "Error: " + e.getMessage();
-        }
-    }
-
     @McpTool(description = "Resume execution of all threads in the VM")
     public String jdwp_resume() {
         try {
             VirtualMachine vm = jdiService.getVM();
             vm.resume();
             return "All threads resumed";
-        } catch (Exception e) {
-            return "Error: " + e.getMessage();
-        }
-    }
-
-    @McpTool(description = "Resume execution of a specific thread")
-    public String jdwp_resume_thread(@McpToolParam(description = "Thread unique ID") long threadId) {
-        try {
-            VirtualMachine vm = jdiService.getVM();
-
-            // Find thread
-            ThreadReference thread = vm.allThreads().stream()
-                .filter(t -> t.uniqueID() == threadId)
-                .findFirst()
-                .orElse(null);
-
-            if (thread == null) {
-                return "Error: Thread not found with ID " + threadId;
-            }
-
-            thread.resume();
-            return String.format("Thread %d (%s) resumed", threadId, thread.name());
-        } catch (Exception e) {
-            return "Error: " + e.getMessage();
-        }
-    }
-
-    @McpTool(description = "Suspend execution of a specific thread")
-    public String jdwp_suspend_thread(@McpToolParam(description = "Thread unique ID") long threadId) {
-        try {
-            VirtualMachine vm = jdiService.getVM();
-
-            // Find thread
-            ThreadReference thread = vm.allThreads().stream()
-                .filter(t -> t.uniqueID() == threadId)
-                .findFirst()
-                .orElse(null);
-
-            if (thread == null) {
-                return "Error: Thread not found with ID " + threadId;
-            }
-
-            thread.suspend();
-            return String.format("Thread %d (%s) suspended", threadId, thread.name());
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }

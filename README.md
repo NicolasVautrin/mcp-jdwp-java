@@ -37,11 +37,6 @@ Tomcat/Application Java (port JVM_JDWP_PORT=61959)
 - Affichage du contenu (éléments, entrées key=value)
 - Navigation dans les tableaux
 
-✅ **Scripting**
-- Invocation de méthodes sur les objets (comme dans un debugger)
-- Appel de getters/accesseurs
-- Résultats typés
-
 ✅ **Contrôle d'exécution**
 - Resume/Suspend de threads
 - Step Over, Step Into, Step Out
@@ -61,86 +56,6 @@ Tomcat/Application Java (port JVM_JDWP_PORT=61959)
 - Cache de compilation pour performance
 - Gestion automatique des proxies (Guice, CGLIB)
 
-## 🚀 Remote Inspector Pattern - Optimisation Performance
-
-### Le Problème
-
-L'inspection traditionnelle d'une stack nécessite **~500 requêtes JDWP** :
-- 1 requête pour obtenir les frames
-- Pour chaque frame (~50-100 frames) :
-  - 1 requête pour les variables locales
-  - Pour chaque variable objet :
-    - 1 requête pour ses champs
-    - Pour chaque champ objet :
-      - 1 requête pour ses sous-champs (récursif)
-
-**Résultat :** Lent, verbeux, et surcharge JDWP
-
-### La Solution : Remote Inspector Pattern
-
-Au lieu de faire 500 requêtes JDWP depuis le MCP, on **délègue l'inspection à la JVM cible** :
-
-1. **Injecter** une classe `Inspector` dans la JVM cible via JDI
-2. **Invoquer** `Inspector.inspectObjects(Object[], maxDepth)` en **1 seul appel**
-3. L'Inspector **sérialise** tous les objets en JSON **localement dans la JVM**
-4. **Retourner** le JSON complet en **1 seule réponse**
-
-**Résultat :** ~10 requêtes JDWP au lieu de ~500 (50x plus rapide)
-
-### Performance Gains
-
-| Approche | Requêtes JDWP | Temps |
-|----------|---------------|-------|
-| **Traditionnelle** (get_stack + get_locals + get_fields) | ~500 | ~30-60s |
-| **Remote Inspector Pattern** (jdwp_inspect_stack) | ~10 | ~2-5s |
-
-**Gain : 50x plus rapide** 🚀
-
-### Comment ça marche ?
-
-1. **Injection automatique** : Au premier appel, l'Inspector est injecté via `ClassLoader.defineClass()`
-2. **Préparation de classe** : Pattern `Class.forName(..., initialize=true)` force la préparation
-3. **Collection des objets** : Tous les `ObjectReference` de toutes les frames sont collectés
-4. **Création d'array** : Un `Object[]` est créé dans la JVM cible via JDI
-5. **Invocation unique** : `Inspector.inspectObjects(objects, 3)` s'exécute **dans la JVM**
-6. **Sérialisation JSON** : L'Inspector sérialise récursivement (profondeur 3) tous les objets
-7. **Retour JSON** : Le JSON complet est retourné en 1 seule réponse
-
-### Utilisation
-
-```java
-// Déclencher un breakpoint dans IntelliJ
-// Obtenir le thread ID
-jdwp_get_current_thread()
-→ "Thread: http-nio-8080-exec-6 (ID=26456)"
-
-// Inspecter toute la stack en 1 seul appel
-jdwp_inspect_stack(threadId=26456)
-→ Retourne JSON avec tous les objets de toutes les frames
-```
-
-### Détails Techniques
-
-**Problèmes résolus :**
-
-1. **ClassNotPreparedException**
-   - Problème : La classe injectée n'est pas PREPARED après `defineClass()`
-   - Solution : Pattern `Class.forName("io.mcp.inspector.Inspector", true, classLoader)`
-   - Le flag `initialize=true` force préparation + initialisation
-
-2. **Zombie State**
-   - Problème : Classe partiellement chargée après échec
-   - Solution : Redémarrer Tomcat pour vider le ClassLoader
-   - Une fois le pattern `Class.forName` en place, plus de zombie state
-
-3. **Chicken-and-Egg**
-   - Problème : `methods()` échoue si classe non-préparée
-   - Solution : Forcer préparation AVANT d'appeler `methods()`
-
-**Implémentation :**
-- `Inspector.java` : Classe injectée avec sérialisation JSON
-- `JDIConnectionService.getOrInjectInspectorClass()` : Injection + préparation via `Class.forName`
-- `JDWPTools.jdwp_inspect_stack()` : Remote Inspector Pattern
 
 ## Prérequis
 
@@ -407,29 +322,6 @@ Array #26944 (java.lang.Object[]) - 10 elements:
 - `HashSet`, `TreeSet`
 - Arrays (Object[], int[], etc.)
 
-### 8. `jdwp_invoke_method`
-Invoquer une méthode sur un objet (scripting comme dans un debugger).
-
-**Paramètres:**
-- `threadId` (long) : ID du thread (doit être suspendu)
-- `objectId` (long) : ID de l'objet
-- `methodName` (String) : Nom de la méthode (ex: "toString", "getModel")
-
-**Exemple:**
-```
-jdwp_invoke_method(threadId=15, objectId=26886, methodName="toString")
-jdwp_invoke_method(threadId=15, objectId=26886, methodName="getLimit")
-jdwp_invoke_method(threadId=15, objectId=26886, methodName="getData")
-```
-
-**Retourne:**
-```
-Result: "com.axelor.rpc.Request@121dda"
-Type: java.lang.String
-```
-
-**Note:** La méthode est exécutée dans le contexte du thread suspendu. Le résultat est automatiquement mis en cache s'il s'agit d'un objet.
-
 ### 9. `jdwp_resume`
 Reprendre l'exécution de tous les threads dans la VM.
 
@@ -447,37 +339,6 @@ All threads resumed
 
 **Note:** Resume tous les threads, équivalent à F8/Resume dans IntelliJ.
 
-### 10. `jdwp_resume_thread`
-Reprendre l'exécution d'un thread spécifique.
-
-**Paramètres:**
-- `threadId` (long) : ID du thread
-
-**Exemple:**
-```
-jdwp_resume_thread(threadId=25)
-```
-
-**Retourne:**
-```
-Thread 25 (http-nio-8080-exec-10) resumed
-```
-
-### 11. `jdwp_suspend_thread`
-Suspendre l'exécution d'un thread spécifique.
-
-**Paramètres:**
-- `threadId` (long) : ID du thread
-
-**Exemple:**
-```
-jdwp_suspend_thread(threadId=25)
-```
-
-**Retourne:**
-```
-Thread 25 (http-nio-8080-exec-10) suspended
-```
 
 ### 12. `jdwp_step_over`
 Exécuter la ligne courante et s'arrêter à la ligne suivante (Step Over, équivalent F6).
@@ -663,59 +524,6 @@ Current thread: http-nio-8080-exec-6 (ID=26456, suspended=true, frames=93)
 
 **Note:** Utilise l'API HTTP du proxy debuggerX pour récupérer automatiquement le thread du dernier breakpoint hit. Très utile avant d'appeler `jdwp_inspect_stack()`.
 
-### 21. `jdwp_inspect_stack` 🚀
-**Remote Inspector Pattern** - Inspecter toute la stack d'un thread en 1 seul appel (~500 requêtes → ~10).
-
-**Paramètres:**
-- `threadId` (long) : ID du thread (obtenu via `jdwp_get_current_thread`)
-
-**Exemple:**
-```
-jdwp_inspect_stack(threadId=26456)
-```
-
-**Fonctionnement:**
-1. Injecte automatiquement la classe `Inspector` dans la JVM cible (si pas déjà injecté)
-2. Force la préparation de classe via `Class.forName(..., initialize=true)`
-3. Collecte tous les `ObjectReference` de toutes les frames (~378 objets)
-4. Crée un `Object[]` array dans la JVM cible
-5. Invoque `Inspector.inspectObjects(objects, maxDepth=3)` **dans la JVM**
-6. Retourne le JSON complet sérialisé
-
-**Retourne:**
-```json
-✓ Thread: http-nio-8080-exec-6 (ID=26456)
-✓ Inspector class: io.mcp.inspector.Inspector
-✓ Frames analyzed: 93
-✓ Objects inspected: 378
-✓ JDWP requests: ~10 (vs ~500 with traditional approach)
-
-JSON Result:
-[
-  {
-    "_class": "com.axelor.rpc.Request",
-    "_identity": "1a2b3c4d",
-    "_toString": "Request@1a2b3c4d",
-    "fields": {
-      "limit": 40,
-      "offset": 0,
-      "data": {
-        "_class": "java.util.LinkedHashMap",
-        "fields": { ... }
-      }
-    }
-  },
-  ...
-]
-```
-
-**Performance:**
-- **Traditionnel** : ~500 requêtes JDWP, 30-60s
-- **Remote Inspector** : ~10 requêtes JDWP, 2-5s
-- **Gain** : 50x plus rapide 🚀
-
-**Note:** Le thread doit être suspendu. La classe Inspector est injectée automatiquement et réutilisée pour les appels suivants (pas de zombie state grâce au pattern `Class.forName`).
-
 ### 22. `jdwp_get_exception_config`
 Obtenir la configuration actuelle de monitoring des exceptions.
 
@@ -867,7 +675,6 @@ _(Déjà documenté ci-dessus comme outil #21)_
    - jdwp_get_locals(15, 0) → trouve request = Object#26886
    - jdwp_get_fields(26886) → voit request.data, request.limit, etc.
    - jdwp_get_fields(26936) → descend dans le LinkedHashMap
-   - jdwp_invoke_method(15, 26886, "getModel") → vérifie le model
 
    "Le problème est que request.model est null alors que..."
 ```
