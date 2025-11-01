@@ -707,29 +707,47 @@ _(Déjà documenté ci-dessus comme outil #21)_
 
 ```
 mcp-jdwp-java/
-├── build.gradle                    # Config Gradle
-├── settings.gradle
-├── gradlew.bat                     # Gradle wrapper
-├── start-debuggerx.bat             # Script pour lancer le proxy
+├── build.gradle                    # Configuration Gradle
+├── settings.gradle                 # Modules Gradle
+├── gradle.properties               # Propriétés Gradle
+├── gradlew.bat                     # Gradle wrapper (Windows)
 ├── .gitignore
-├── README.md
+├── README.md                       # Documentation principale
+├── WORKFLOW.md                     # Guide de développement et debugging
+├── EXPRESSION_EVALUATION.md        # Documentation des watchers et évaluation
+├── check-status.bat                # Script de diagnostic
+│
 ├── lib/
-│   ├── debuggerX.jar              # Proxy JDWP (8 MB)
-│   └── debuggerX-README.md        # Documentation complète du proxy
+│   ├── debuggerX.jar              # Proxy JDWP multi-debugger
+│   └── debuggerX-README.md        # Documentation du proxy
+│
 ├── src/main/
 │   ├── java/io/mcp/jdwp/
 │   │   ├── JDWPMcpServerApplication.java  # Main Spring Boot
-│   │   ├── JDIConnectionService.java      # Service singleton
-│   │   └── JDWPTools.java                 # 8 outils MCP
+│   │   ├── JDWPTools.java                 # 21 outils MCP exposés
+│   │   ├── JDIConnectionService.java      # Connexion JDWP persistante
+│   │   ├── DebuggerXManager.java          # Gestion automatique du proxy
+│   │   │
+│   │   ├── watchers/
+│   │   │   ├── WatcherManager.java        # Gestion des watchers
+│   │   │   └── Watcher.java               # Modèle de watcher
+│   │   │
+│   │   └── evaluation/
+│   │       ├── JdiExpressionEvaluator.java    # Évaluation d'expressions Java
+│   │       ├── RemoteCodeExecutor.java        # Exécution dans la JVM cible
+│   │       ├── InMemoryJavaCompiler.java      # Compilation dynamique (ECJ)
+│   │       ├── ClasspathDiscoverer.java       # Découverte du classpath
+│   │       ├── JdkDiscoveryService.java       # Détection JDK local compatible
+│   │       └── exceptions/
+│   │           └── JdiEvaluationException.java
+│   │
 │   └── resources/
-│       └── application.properties          # Config (stdout propre)
-├── tests/                          # Scripts Python de test
-│   ├── test_client.py
-│   ├── test_collections.py
-│   └── ...
+│       ├── application.properties      # Config Spring Boot
+│       └── logback-spring.xml         # Configuration des logs
+│
 └── build/
     └── libs/
-        └── mcp-jdwp-java-1.0.0.jar        # JAR final (23 MB)
+        └── mcp-jdwp-java-1.0.0.jar    # JAR final (23 MB)
 ```
 
 ## Dépendances
@@ -738,6 +756,9 @@ mcp-jdwp-java/
 - **Spring AI MCP 1.1.0-M3** - Intégration MCP
 - **MCP Annotations 0.1.0** - @McpTool
 - **JDI** (com.sun.jdi depuis tools.jar) - Interface de debug Java
+- **Eclipse JDT Compiler (ECJ) 3.33.0** - Compilation dynamique d'expressions
+- **Lombok** - Annotations (@Slf4j pour logging)
+- **Jackson** - Parsing JSON pour API debuggerX
 
 ## Avantages
 
