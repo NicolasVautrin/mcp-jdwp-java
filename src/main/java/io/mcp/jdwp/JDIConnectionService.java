@@ -2,14 +2,24 @@ package io.mcp.jdwp;
 
 import com.sun.jdi.*;
 import com.sun.jdi.connect.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Singleton service maintaining persistent JDI connection to remote JDWP server
  */
+@Slf4j
 @Service
 @Scope("singleton")
 public class JDIConnectionService {
@@ -20,6 +30,12 @@ public class JDIConnectionService {
 
     // Cache pour stocker les ObjectReferences rencontrées
     private final Map<Long, ObjectReference> objectCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // Cached classpath from target JVM (discovered once)
+    private volatile String cachedClasspath = null;
+
+    // Discovered local JDK path matching target JVM version
+    private volatile String discoveredJdkPath = null;
 
     /**
      * Check if VM connection is alive
@@ -471,6 +487,159 @@ public class JDIConnectionService {
 
         } else {
             return "Error: Static method invocation not yet implemented";
+        }
+    }
+
+    /**
+     * TODO: Implement event history tracking
+     */
+    public java.util.List<String> getRecentEvents(int count) {
+        return new java.util.ArrayList<>();
+    }
+
+    /**
+     * TODO: Implement event history clearing
+     */
+    public void clearEvents() {
+        // Stub implementation
+    }
+
+    /**
+     * TODO: Implement exception monitoring configuration
+     */
+    public String configureExceptionMonitoring(Boolean captureCaught, String includePackages, String excludeClasses) {
+        return "Exception monitoring not yet implemented";
+    }
+
+    /**
+     * TODO: Implement exception config retrieval
+     */
+    public String getExceptionConfig() {
+        return "Exception monitoring not yet implemented";
+    }
+
+    /**
+     * Discover the full classpath of the target JVM by exploring its classloader hierarchy.
+     * Results are cached after first call.
+     *
+     * This method explores the context classloader hierarchy to find all dynamically loaded JARs,
+     * which is essential for Tomcat/container applications where most JARs are not in java.class.path.
+     *
+     * MUST be called with a thread that is already suspended at a breakpoint.
+     * This ensures the thread is in a compatible state for INVOKE_SINGLE_THREADED.
+     *
+     * @param suspendedThread A thread already suspended at a breakpoint (REQUIRED)
+     * @return Classpath string (colon or semicolon separated depending on OS), or null if unavailable
+     */
+    public String discoverClasspath(ThreadReference suspendedThread) {
+        if (cachedClasspath != null) {
+            return cachedClasspath;
+        }
+
+        if (suspendedThread == null) {
+            log.error("[JDI] discoverClasspath() requires a suspended thread from a breakpoint");
+            return null;
+        }
+
+        try {
+            ensureConnected();
+
+            log.info("[JDI] Discovering full classpath using breakpoint thread '{}'", suspendedThread.name());
+
+            // Use ClasspathDiscoverer to explore classloader hierarchy
+            io.mcp.jdwp.evaluation.ClasspathDiscoverer discoverer =
+                new io.mcp.jdwp.evaluation.ClasspathDiscoverer(vm);
+
+            // Discover both JDK path and application classpath
+            io.mcp.jdwp.evaluation.ClasspathDiscoverer.DiscoveryResult result =
+                discoverer.discoverFullClasspath(suspendedThread);
+
+            // Store discovered JDK path for later use by JDT compiler
+            discoveredJdkPath = result.getLocalJdkPath();
+            log.info("[JDI] Using local JDK: {}", discoveredJdkPath);
+
+            Set<String> classpathEntries = result.getApplicationClasspath();
+
+            if (classpathEntries.isEmpty()) {
+                log.warn("[JDI] No classpath entries discovered");
+                return null;
+            }
+
+            // Determine separator based on first entry (Windows uses backslash, Unix forward slash)
+            String separator = classpathEntries.stream()
+                .findFirst()
+                .map(path -> path.contains("\\") ? ";" : ":")
+                .orElse(System.getProperty("path.separator"));
+
+            // Join all entries into a single classpath string
+            cachedClasspath = String.join(separator, classpathEntries);
+
+            log.info("[JDI] Full classpath discovered ({} entries)", classpathEntries.size());
+
+            return cachedClasspath;
+
+        } catch (io.mcp.jdwp.evaluation.JdkDiscoveryService.JdkNotFoundException e) {
+            // Critical error: No matching JDK found locally
+            log.error("[JDI] {}", e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.error("[JDI] Failed to discover classpath", e);
+            return null;
+        }
+    }
+
+    /**
+     * Get the discovered local JDK path matching the target JVM version.
+     * This path is discovered during classpath discovery and can be used by the JDT compiler.
+     *
+     * @return Local JDK path, or null if not yet discovered
+     */
+    public String getDiscoveredJdkPath() {
+        return discoveredJdkPath;
+    }
+
+    /**
+     * Query the debuggerX proxy to get the current breakpoint thread ID.
+     * Makes HTTP GET request to http://localhost:55006/current-thread
+     *
+     * @return threadId if a breakpoint is active, null otherwise
+     */
+    public Long getCurrentThreadFromProxy() {
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:55006/current-thread"))
+                .GET()
+                .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            // If 404, no breakpoint event captured yet
+            if (response.statusCode() == 404) {
+                return null;
+            }
+
+            // If not 200, something went wrong
+            if (response.statusCode() != 200) {
+                System.err.println("[JDI] Failed to get current thread from proxy: HTTP " + response.statusCode() + " - " + response.body());
+                return null;
+            }
+
+            // Parse JSON manually to extract threadId (simple regex-based parsing)
+            String body = response.body();
+            Pattern pattern = Pattern.compile("\"threadId\"\\s*:\\s*(\\d+)");
+            Matcher matcher = pattern.matcher(body);
+
+            if (matcher.find()) {
+                return Long.parseLong(matcher.group(1));
+            }
+
+            System.err.println("[JDI] Failed to parse threadId from proxy response: " + body);
+            return null;
+
+        } catch (Exception e) {
+            System.err.println("[JDI] Error querying proxy for current thread: " + e.getMessage());
+            return null;
         }
     }
 }
